@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Pokedex 3D{% endblock %}
+
+{% block extra_head %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+    .fonte-pixel { font-family: 'Press Start 2P', monospace; }
+
+    /* Apoiada numa "mesa invisível": inclinação fixa e suave, sem seguir o mouse. */
+    .pokedex-3d {
+        transform-style: preserve-3d;
+        transform: perspective(1600px) rotateX(16deg);
+    }
+    .pokedex-pop-1 { transform: translateZ(18px); }
+    .pokedex-pop-2 { transform: translateZ(32px); }
+    .pokedex-sombra-mesa {
+        width: 85%;
+        height: 28px;
+        margin: 18px auto 0;
+        background: radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 70%);
+        transform: perspective(1600px) rotateX(16deg) translateZ(-10px);
+    }
+
+    .brilho-plastico {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0) 32%);
+        pointer-events: none;
+        border-radius: inherit;
+    }
+
+    .tela-scanline { position: relative; }
+    .tela-scanline::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+            to bottom,
+            rgba(0,0,0,0) 0px, rgba(0,0,0,0) 1px,
+            rgba(0,0,0,0.18) 2px, rgba(0,0,0,0.18) 3px
+        );
+        pointer-events: none;
+        z-index: 20;
+    }
+    .tela-scanline::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at center, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.4) 100%);
+        pointer-events: none;
+        z-index: 21;
+    }
+    @keyframes tela-flicker {
+        0%, 100% { opacity: 1; }
+        92% { opacity: 1; }
+        93% { opacity: 0.88; }
+        94% { opacity: 1; }
+    }
+    .tela-flicker { animation: tela-flicker 6s infinite; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="pokedex-app" class="min-h-screen flex items-center justify-center p-8 bg-gradient-to-br from-slate-900 via-slate-950 to-black">
+    <div class="w-full max-w-md" style="perspective: 1600px;">
+        <div class="pokedex-3d relative bg-red-600 border-[6px] border-black rounded-[2rem] shadow-[12px_12px_0px_0px_rgba(0,0,0,0.9)] p-6 overflow-hidden">
+            <div class="brilho-plastico"></div>
+            <div class="pokedex-pop-2 absolute -top-3 left-9 w-10 h-4 bg-zinc-800 border-2 border-black rounded-t-full"></div>
+
+            <div class="pokedex-pop-2 flex items-center gap-3 mb-4 relative">
+                <div class="w-10 h-10 rounded-full bg-sky-300 border-4 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)] relative overflow-hidden">
+                    <div class="absolute top-1 left-1 w-3 h-3 bg-white/70 rounded-full"></div>
+                </div>
+                <div class="w-4 h-4 rounded-full bg-red-300 border-2 border-black"></div>
+                <div class="w-4 h-4 rounded-full bg-yellow-300 border-2 border-black"></div>
+                <div class="w-4 h-4 rounded-full bg-green-400 border-2 border-black"></div>
+                <div class="flex-1"></div>
+                <span v-if="pokemon" class="fonte-pixel text-[8px] text-black/40">No.[[ String(pokemon.id).padStart(3, '0') ]]</span>
+            </div>
+
+            <div class="pokedex-pop-1 relative bg-black border-4 border-black rounded-xl p-4 shadow-[inset_4px_4px_10px_rgba(0,0,0,0.9)] min-h-[380px] flex flex-col overflow-hidden">
+                <div class="tela-scanline tela-flicker flex-1 bg-gradient-to-b from-slate-800 to-slate-950 rounded-lg border-2 border-black flex items-center justify-center overflow-hidden">
+                    <p v-if="loading" class="fonte-pixel text-green-400 text-[10px] animate-pulse">ESCANEANDO...</p>
+                    <p v-else-if="error" class="fonte-pixel text-red-400 text-[9px] text-center px-4 leading-relaxed">[[ error ]]</p>
+                    <div v-else-if="pokemon" class="text-center p-4">
+                        <img :src="pokemon.sprites.other['official-artwork'].front_default" :alt="pokemon.name"
+                             class="w-36 h-36 mx-auto drop-shadow-[6px_6px_0px_rgba(0,0,0,0.6)]" />
+                        <div class="flex items-center justify-center gap-2 mt-1">
+                            <h2 class="fonte-pixel text-white text-xs capitalize">[[ pokemon.name ]]</h2>
+                            <button v-if="pokemon.cries && pokemon.cries.latest" type="button" @click="tocarGrito"
+                                    class="text-sm hover:scale-125 transition-transform" title="Ouvir grito">🔊</button>
+                        </div>
+                        <p class="fonte-pixel text-green-400 text-[9px] mt-1">#[[ String(pokemon.id).padStart(3, '0') ]]</p>
+                        <div class="flex gap-1.5 justify-center mt-2 flex-wrap">
+                            <span v-for="t in pokemon.types" :key="t.type.name"
+                                  class="fonte-pixel text-[8px] uppercase font-bold px-2 py-1 rounded border-2 border-black text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.8)]"
+                                  :style="{ backgroundColor: corTipo(t.type.name) }">
+                                [[ t.type.name ]]
+                            </span>
+                        </div>
+                    </div>
+                    <p v-else class="fonte-pixel text-slate-500 text-[9px] text-center px-4 leading-relaxed">AGUARDANDO<br>BUSCA...</p>
+                </div>
+
+                <div v-if="pokemon" class="mt-3 space-y-1.5">
+                    <div v-for="s in pokemon.stats" :key="s.stat.name" class="flex items-center gap-2">
+                        <span class="fonte-pixel text-[7px] text-slate-400 w-10 flex-shrink-0">[[ nomeStat(s.stat.name) ]]</span>
+                        <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden border border-black">
+                            <div class="h-full rounded-full transition-all" :style="{ width: Math.min(100, s.base_stat / 1.8) + '%', backgroundColor: corStat(s.base_stat) }"></div>
+                        </div>
+                        <span class="fonte-pixel text-[7px] text-slate-400 w-6 text-right flex-shrink-0">[[ s.base_stat ]]</span>
+                    </div>
+                </div>
+
+                <div v-if="pokemon" class="grid grid-cols-2 gap-2 mt-3 fonte-pixel text-[8px] text-slate-300">
+                    <div class="bg-slate-800 border-2 border-black rounded px-2 py-1.5">ALT: [[ pokemon.height / 10 ]]m</div>
+                    <div class="bg-slate-800 border-2 border-black rounded px-2 py-1.5">PESO: [[ pokemon.weight / 10 ]]kg</div>
+                </div>
+            </div>
+
+            <form @submit.prevent="buscarPokemon" class="mt-4 flex gap-2">
+                <input v-model="query" type="text" placeholder="Nome ou ID"
+                       class="flex-1 px-3 py-2 rounded-lg border-4 border-black font-mono text-sm bg-white text-black placeholder-slate-500 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)] focus:outline-none" />
+                <button type="submit"
+                        class="px-4 py-2 bg-yellow-400 border-4 border-black rounded-lg font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none transition-transform">
+                    Buscar
+                </button>
+            </form>
+            <button type="button" @click="pokemonAleatorio"
+                    class="w-full mt-2 px-4 py-2 bg-sky-300 border-4 border-black rounded-lg font-bold shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none transition-transform">
+                🎲 Pokémon Aleatório
+            </button>
+        </div>
+        <div class="pokedex-sombra-mesa"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const { createApp } = Vue;
+    createApp({
+        compilerOptions: { delimiters: ['[[', ']]'] },
+        data() {
+            return {
+                query: '',
+                loading: false,
+                error: null,
+                pokemon: null,
+            };
+        },
+        methods: {
+            async buscarPokemon() {
+                if (!this.query.trim()) return;
+                await this.buscarPorIdentificador(this.query.trim().toLowerCase());
+            },
+            async pokemonAleatorio() {
+                const idAleatorio = Math.floor(Math.random() * 1025) + 1;
+                this.query = String(idAleatorio);
+                await this.buscarPorIdentificador(idAleatorio);
+            },
+            async buscarPorIdentificador(identificador) {
+                this.loading = true;
+                this.error = null;
+                this.pokemon = null;
+                try {
+                    const resp = await fetch(`https://pokeapi.co/api/v2/pokemon/${identificador}`);
+                    if (!resp.ok) throw new Error('Pokémon não encontrado.');
+                    this.pokemon = await resp.json();
+                } catch (e) {
+                    this.error = e.message;
+                } finally {
+                    this.loading = false;
+                }
+            },
+            tocarGrito() {
+                if (this.pokemon && this.pokemon.cries && this.pokemon.cries.latest) {
+                    new Audio(this.pokemon.cries.latest).play().catch(() => {});
+                }
+            },
+            corTipo(tipo) {
+                const cores = {
+                    normal: '#A8A878', fire: '#F08030', water: '#6890F0', electric: '#F8D030', grass: '#78C850',
+                    ice: '#98D8D8', fighting: '#C03028', poison: '#A040A0', ground: '#E0C068', flying: '#A890F0',
+                    psychic: '#F85888', bug: '#A8B820', rock: '#B8A038', ghost: '#705898', dragon: '#7038F8',
+                    dark: '#705848', steel: '#B8B8D0', fairy: '#EE99AC',
+                };
+                return cores[tipo] || '#68A090';
+            },
+            corStat(valor) {
+                if (valor < 50) return '#ef4444';
+                if (valor < 90) return '#facc15';
+                return '#4ade80';
+            },
+            nomeStat(nome) {
+                const mapa = {
+                    hp: 'HP', attack: 'ATQ', defense: 'DEF',
+                    'special-attack': 'SATQ', 'special-defense': 'SDEF', speed: 'VEL',
+                };
+                return mapa[nome] || nome.toUpperCase();
+            },
+        },
+    }).mount('#pokedex-app');
+</script>
+{% endblock %}

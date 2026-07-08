@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Painel{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased">
+    <div class="flex min-h-screen">
+        <aside class="w-64 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col">
+            <div class="p-6 border-b border-slate-800">
+                <h1 class="text-xl font-bold tracking-tight text-white">Painel</h1>
+                <p class="text-xs text-slate-500">Flask + Vue + Tailwind</p>
+            </div>
+            <nav class="flex-1 p-4 space-y-1">
+                <a href="{{ url_for('pokedex') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('pokedex') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>🐾</span> Pokedex
+                </a>
+                <a href="{{ url_for('weather') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('weather') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>🌤️</span> Weather Monitor
+                </a>
+                <a href="{{ url_for('spotify') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('spotify') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>🎵</span> Spotify Analyzer
+                </a>
+                <a href="{{ url_for('player') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('player') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>▶️</span> Player Web
+                </a>
+                <a href="{{ url_for('liquido') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('liquido') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>💧</span> Líquido 3D
+                </a>
+                <a href="{{ url_for('deserto') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('deserto') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>🏜️</span> Deserto 3D
+                </a>
+                <a href="{{ url_for('chuva_letras') }}"
+                   class="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors {{ 'bg-indigo-600 text-white' if request.path == url_for('chuva_letras') else 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
+                    <span>🌧️</span> Chuva de Letras
+                </a>
+            </nav>
+            <div class="p-4 text-xs text-slate-600 border-t border-slate-800">
+                Template MPA sem build step
+            </div>
+        </aside>
+        <main class="flex-1 overflow-y-auto">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

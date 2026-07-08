@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Weather Monitor{% endblock %}
+
+{% block content %}
+<div id="weather-app" class="p-8 max-w-5xl mx-auto">
+    <h1 class="text-2xl font-bold text-white mb-1">Weather Monitor</h1>
+    <p class="text-slate-400 text-sm mb-6">Clima em tempo real baseado na sua localização</p>
+
+    <p v-if="loading" class="text-slate-400 animate-pulse">Obtendo localização e clima...</p>
+    <div v-else-if="error" class="text-red-400 bg-red-950/40 border border-red-800 rounded-lg p-4">[[ error ]]</div>
+
+    <div v-else-if="clima">
+        <div class="bg-gradient-to-br from-indigo-600 to-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col sm:flex-row items-center justify-between gap-6 mb-6">
+            <div>
+                <p class="text-slate-200 text-sm font-medium">📍 [[ clima.local || 'Localização desconhecida' ]]</p>
+                <div class="flex items-center gap-3 mt-2">
+                    <span class="text-6xl leading-none">[[ clima.atual.icone ]]</span>
+                    <div>
+                        <p class="text-5xl font-bold text-white">[[ Math.round(clima.atual.temperatura) ]]°C</p>
+                        <p class="text-slate-300 text-sm">[[ clima.atual.condicao ]]</p>
+                    </div>
+                </div>
+            </div>
+            <div class="text-right text-slate-300 text-sm space-y-1">
+                <p>Sensação térmica: <span class="text-white font-semibold">[[ Math.round(clima.atual.sensacao_termica) ]]°C</span></p>
+                <p>Máx: <span class="text-white font-semibold">[[ Math.round(clima.hoje.temp_max) ]]°C</span> · Mín: <span class="text-white font-semibold">[[ Math.round(clima.hoje.temp_min) ]]°C</span></p>
+                <p>[[ clima.atual.e_dia ? '☀️ Dia' : '🌙 Noite' ]]</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Umidade</p>
+                <p class="text-2xl font-bold text-white mt-2">💧 [[ clima.atual.umidade ]]%</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Vento</p>
+                <p class="text-2xl font-bold text-white mt-2">🌬️ [[ Math.round(clima.atual.vento_velocidade) ]] km/h</p>
+                <p class="text-slate-500 text-xs mt-1">[[ clima.atual.vento_direcao || '—' ]] · Rajadas [[ Math.round(clima.atual.vento_rajada || 0) ]] km/h</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Pressão</p>
+                <p class="text-2xl font-bold text-white mt-2">📊 [[ Math.round(clima.atual.pressao) ]] hPa</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Nebulosidade</p>
+                <p class="text-2xl font-bold text-white mt-2">☁️ [[ clima.atual.nebulosidade ]]%</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Chance de chuva</p>
+                <p class="text-2xl font-bold text-white mt-2">🌧️ [[ clima.hoje.chance_chuva ?? '—' ]]%</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Índice UV máx.</p>
+                <p class="text-2xl font-bold text-white mt-2">🔆 [[ clima.hoje.uv_max ?? '—' ]]</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Nascer do sol</p>
+                <p class="text-2xl font-bold text-white mt-2">🌅 [[ formatarHora(clima.hoje.nascer_sol) ]]</p>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <p class="text-slate-500 text-xs uppercase tracking-wide">Pôr do sol</p>
+                <p class="text-2xl font-bold text-white mt-2">🌇 [[ formatarHora(clima.hoje.por_sol) ]]</p>
+            </div>
+        </div>
+    </div>
+
+    <button @click="obterLocalizacao"
+            class="mt-6 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium">
+        Atualizar
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const { createApp } = Vue;
+    createApp({
+        compilerOptions: { delimiters: ['[[', ']]'] },
+        data() {
+            return { loading: true, error: null, clima: null };
+        },
+        mounted() {
+            this.obterLocalizacao();
+        },
+        methods: {
+            obterLocalizacao() {
+                this.loading = true;
+                this.error = null;
+                if (!navigator.geolocation) {
+                    this.error = 'Geolocalização não suportada neste navegador.';
+                    this.loading = false;
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => this.buscarClima(pos.coords.latitude, pos.coords.longitude),
+                    () => {
+                        this.error = 'Não foi possível obter sua localização. Verifique as permissões do navegador.';
+                        this.loading = false;
+                    }
+                );
+            },
+            async buscarClima(lat, lon) {
+                try {
+                    const resp = await fetch(`/api/clima?lat=${lat}&lon=${lon}`);
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.error || 'Falha ao obter clima.');
+                    this.clima = data;
+                } catch (e) {
+                    this.error = e.message;
+                } finally {
+                    this.loading = false;
+                }
+            },
+            formatarHora(isoString) {
+                if (!isoString) return '—';
+                return new Date(isoString).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            },
+        },
+    }).mount('#weather-app');
+</script>
+{% endblock %}

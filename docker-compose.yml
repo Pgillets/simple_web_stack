@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "5050:5000"
+    volumes:
+      - ./templates:/app/templates
+      - ./app.py:/app/app.py
+    env_file:
+      - .env
+    environment:
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-key-change-me}
+      - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://127.0.0.1:5050/callback}

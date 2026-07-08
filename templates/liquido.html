@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Líquido 3D{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+<style>
+    html, body { margin: 0; overflow: hidden; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="liquido-app" class="relative w-full h-screen bg-black overflow-hidden">
+    <div id="liquido-canvas" class="absolute inset-0"></div>
+
+    <div class="absolute top-6 left-6 right-6 pointer-events-none">
+        <h1 class="text-xl font-bold text-white drop-shadow">💧 Simulação de Líquido (Three.js)</h1>
+        <p class="text-slate-300 text-sm drop-shadow max-w-md">
+            Mexa o mouse pra criar ondas. Clique pra um respingo maior. Roda numa simulação real de
+            propagação de ondas (equação de onda 2D) rodando em shader na GPU — não é uma animação decorativa.
+        </p>
+    </div>
+
+    <p v-if="erroWebgl" class="absolute inset-0 flex items-center justify-center text-red-400 bg-black/80 text-center p-8">
+        Seu navegador não parece suportar WebGL2, necessário pra essa simulação.
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const { createApp } = Vue;
+    createApp({
+        compilerOptions: { delimiters: ['[[', ']]'] },
+        data() {
+            return { erroWebgl: false };
+        },
+        mounted() {
+            try {
+                this.iniciarSimulacao();
+            } catch (e) {
+                console.error('Falha ao iniciar simulação WebGL:', e);
+                this.erroWebgl = true;
+            }
+        },
+        methods: {
+            iniciarSimulacao() {
+                const container = document.getElementById('liquido-canvas');
+                let largura = container.clientWidth;
+                let altura = container.clientHeight;
+
+                const renderer = new THREE.WebGLRenderer({ antialias: false });
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+                renderer.setSize(largura, altura);
+                container.appendChild(renderer.domElement);
+
+                const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+                const geometry = new THREE.PlaneGeometry(2, 2);
+
+                const rtOptions = {
+                    type: THREE.FloatType,
+                    minFilter: THREE.LinearFilter,
+                    magFilter: THREE.LinearFilter,
+                    format: THREE.RGBAFormat,
+                    depthBuffer: false,
+                    stencilBuffer: false,
+                };
+
+                let rtA = new THREE.WebGLRenderTarget(largura, altura, rtOptions);
+                let rtB = new THREE.WebGLRenderTarget(largura, altura, rtOptions);
+
+                const vertexShader = `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = vec4(position.xy, 0.0, 1.0);
+                    }
+                `;
+
+                const simFragmentShader = `
+                    precision highp float;
+                    varying vec2 vUv;
+                    uniform sampler2D uState;
+                    uniform vec2 uResolution;
+                    uniform vec2 uMouse;
+                    uniform float uMouseActive;
+                    uniform vec2 uAutoPos;
+                    uniform float uAutoActive;
+
+                    void main() {
+                        vec2 texel = 1.0 / uResolution;
+                        vec2 state = texture2D(uState, vUv).rg;
+                        float h = state.r;
+                        float v = state.g;
+
+                        float hL = texture2D(uState, vUv - vec2(texel.x, 0.0)).r;
+                        float hR = texture2D(uState, vUv + vec2(texel.x, 0.0)).r;
+                        float hU = texture2D(uState, vUv + vec2(0.0, texel.y)).r;
+                        float hD = texture2D(uState, vUv - vec2(0.0, texel.y)).r;
+
+                        float laplacian = (hL + hR + hU + hD) * 0.25 - h;
+                        v += laplacian * 2.0;
+                        v *= 0.985;
+                        h += v;
+
+                        float dist = distance(vUv, uMouse);
+                        float influencia = smoothstep(0.07, 0.0, dist) * uMouseActive;
+                        h += influencia * 0.55;
+
+                        float distAuto = distance(vUv, uAutoPos);
+                        float influenciaAuto = smoothstep(0.05, 0.0, distAuto) * uAutoActive;
+                        h += influenciaAuto * 0.35;
+
+                        if (vUv.x < texel.x || vUv.x > 1.0 - texel.x || vUv.y < texel.y || vUv.y > 1.0 - texel.y) {
+                            h *= 0.5;
+                            v *= 0.5;
+                        }
+
+                        gl_FragColor = vec4(h, v, 0.0, 1.0);
+                    }
+                `;
+
+                const displayFragmentShader = `
+                    precision highp float;
+                    varying vec2 vUv;
+                    uniform sampler2D uState;
+                    uniform vec2 uResolution;
+
+                    void main() {
+                        vec2 texel = 1.0 / uResolution;
+                        float h = texture2D(uState, vUv).r;
+                        float hL = texture2D(uState, vUv - vec2(texel.x, 0.0)).r;
+                        float hR = texture2D(uState, vUv + vec2(texel.x, 0.0)).r;
+                        float hU = texture2D(uState, vUv + vec2(0.0, texel.y)).r;
+                        float hD = texture2D(uState, vUv - vec2(0.0, texel.y)).r;
+
+                        vec3 normal = normalize(vec3((hL - hR) * 18.0, (hD - hU) * 18.0, 1.0));
+                        vec3 lightDir = normalize(vec3(0.35, 0.55, 0.75));
+                        float diffuse = max(dot(normal, lightDir), 0.0);
+                        vec3 viewDir = vec3(0.0, 0.0, 1.0);
+                        vec3 halfDir = normalize(lightDir + viewDir);
+                        float specular = pow(max(dot(normal, halfDir), 0.0), 60.0);
+
+                        vec3 corProfunda = vec3(0.02, 0.07, 0.18);
+                        vec3 corRasa = vec3(0.10, 0.45, 0.62);
+                        vec3 corBase = mix(corProfunda, corRasa, clamp(h * 4.0 + 0.5, 0.0, 1.0));
+
+                        vec3 cor = corBase * (0.55 + diffuse * 0.75) + vec3(0.9, 0.98, 1.0) * specular * 1.2;
+                        gl_FragColor = vec4(cor, 1.0);
+                    }
+                `;
+
+                const simMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uState: { value: null },
+                        uResolution: { value: new THREE.Vector2(largura, altura) },
+                        uMouse: { value: new THREE.Vector2(0.5, 0.5) },
+                        uMouseActive: { value: 0 },
+                        uAutoPos: { value: new THREE.Vector2(0.5, 0.5) },
+                        uAutoActive: { value: 0 },
+                    },
+                    vertexShader,
+                    fragmentShader: simFragmentShader,
+                });
+
+                const displayMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uState: { value: null },
+                        uResolution: { value: new THREE.Vector2(largura, altura) },
+                    },
+                    vertexShader,
+                    fragmentShader: displayFragmentShader,
+                });
+
+                const simScene = new THREE.Scene();
+                simScene.add(new THREE.Mesh(geometry, simMaterial));
+
+                const displayScene = new THREE.Scene();
+                displayScene.add(new THREE.Mesh(geometry, displayMaterial));
+
+                const mouse = new THREE.Vector2(0.5, 0.5);
+                let mouseActive = 0;
+                const autoPos = new THREE.Vector2(Math.random(), Math.random());
+                let autoActive = 0;
+                let ultimoMovimento = performance.now();
+
+                const atualizarMousePos = (clientX, clientY) => {
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = (clientX - rect.left) / rect.width;
+                    mouse.y = 1.0 - (clientY - rect.top) / rect.height;
+                    mouseActive = 1.0;
+                    ultimoMovimento = performance.now();
+                };
+
+                container.addEventListener('mousemove', (e) => atualizarMousePos(e.clientX, e.clientY));
+                container.addEventListener('mousedown', (e) => {
+                    atualizarMousePos(e.clientX, e.clientY);
+                    mouseActive = 3.0;
+                });
+                container.addEventListener('touchmove', (e) => {
+                    if (e.touches.length) {
+                        atualizarMousePos(e.touches[0].clientX, e.touches[0].clientY);
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+                container.addEventListener('mouseleave', () => { mouseActive = 0; });
+
+                const onResize = () => {
+                    largura = container.clientWidth;
+                    altura = container.clientHeight;
+                    renderer.setSize(largura, altura);
+                    rtA.setSize(largura, altura);
+                    rtB.setSize(largura, altura);
+                    simMaterial.uniforms.uResolution.value.set(largura, altura);
+                    displayMaterial.uniforms.uResolution.value.set(largura, altura);
+                };
+                window.addEventListener('resize', onResize);
+
+                const animar = () => {
+                    requestAnimationFrame(animar);
+
+                    if (performance.now() - ultimoMovimento > 2500 && Math.random() < 0.02) {
+                        autoPos.set(Math.random(), Math.random());
+                        autoActive = 1.0;
+                    }
+
+                    simMaterial.uniforms.uState.value = rtA.texture;
+                    simMaterial.uniforms.uMouse.value = mouse;
+                    simMaterial.uniforms.uMouseActive.value = mouseActive;
+                    simMaterial.uniforms.uAutoPos.value = autoPos;
+                    simMaterial.uniforms.uAutoActive.value = autoActive;
+
+                    renderer.setRenderTarget(rtB);
+                    renderer.render(simScene, camera);
+                    [rtA, rtB] = [rtB, rtA];
+
+                    displayMaterial.uniforms.uState.value = rtA.texture;
+                    renderer.setRenderTarget(null);
+                    renderer.render(displayScene, camera);
+
+                    mouseActive *= 0.90;
+                    autoActive *= 0.85;
+                };
+                animar();
+            },
+        },
+    }).mount('#liquido-app');
+</script>
+{% endblock %}

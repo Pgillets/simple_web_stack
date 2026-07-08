@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Deserto 3D{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
+<style>
+    html, body { margin: 0; overflow: hidden; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="deserto-app" class="relative w-full h-screen bg-black overflow-hidden">
+    <div id="deserto-canvas" class="absolute inset-0"></div>
+
+    <div class="absolute top-6 left-6 pointer-events-none">
+        <h1 class="text-xl font-bold text-white drop-shadow">🏜️ Buggy no Deserto (Three.js)</h1>
+        <p class="text-slate-200 text-sm drop-shadow max-w-xs">
+            <strong>W/↑</strong> acelerar · <strong>S/↓</strong> ré/freio · <strong>A/D ou ←/→</strong> virar
+        </p>
+    </div>
+
+    <div class="absolute bottom-6 left-6 bg-black/50 backdrop-blur rounded-lg px-4 py-2 font-mono text-white text-sm">
+        [[ velocidadeExibida ]] km/h
+    </div>
+
+    <p v-if="erroWebgl" class="absolute inset-0 flex items-center justify-center text-red-400 bg-black/80 text-center p-8">
+        Seu navegador não parece suportar WebGL, necessário pra essa simulação.
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const { createApp } = Vue;
+    createApp({
+        compilerOptions: { delimiters: ['[[', ']]'] },
+        data() {
+            return { erroWebgl: false, velocidadeExibida: 0 };
+        },
+        mounted() {
+            try {
+                this.iniciarCena();
+            } catch (e) {
+                console.error('Falha ao iniciar cena WebGL:', e);
+                this.erroWebgl = true;
+            }
+        },
+        methods: {
+            iniciarCena() {
+                const container = document.getElementById('deserto-canvas');
+                let largura = container.clientWidth;
+                let altura = container.clientHeight;
+
+                // --- Função de altura do terreno: dunas suaves + lombadas periódicas ---
+                function alturaTerreno(x, z) {
+                    let h = Math.sin(x * 0.04) * 2.0 + Math.cos(z * 0.035) * 2.0;
+                    h += Math.sin((x + z) * 0.018) * 1.5;
+
+                    const periodo = 22;
+                    const fase = ((z % periodo) + periodo) % periodo;
+                    const lombada = Math.exp(-Math.pow((fase - periodo / 2) / 2.2, 2)) * 1.6;
+                    h += lombada;
+
+                    return h;
+                }
+
+                // --- Cena, câmera, renderer ---
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0xf3d9a4);
+                scene.fog = new THREE.Fog(0xf3d9a4, 40, 160);
+
+                const camera = new THREE.PerspectiveCamera(65, largura / altura, 0.1, 500);
+                camera.position.set(0, 6, 12);
+
+                const renderer = new THREE.WebGLRenderer({ antialias: true });
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+                renderer.setSize(largura, altura);
+                renderer.shadowMap.enabled = true;
+                container.appendChild(renderer.domElement);
+
+                // --- Luz ---
+                const sol = new THREE.DirectionalLight(0xfff4d6, 1.6);
+                sol.position.set(-40, 60, -20);
+                sol.castShadow = true;
+                sol.shadow.mapSize.set(1024, 1024);
+                sol.shadow.camera.left = -60;
+                sol.shadow.camera.right = 60;
+                sol.shadow.camera.top = 60;
+                sol.shadow.camera.bottom = -60;
+                scene.add(sol);
+                scene.add(new THREE.AmbientLight(0xffe8c0, 0.65));
+
+                // --- Terreno ---
+                const tamanho = 400;
+                const segmentos = 160;
+                const geometriaTerreno = new THREE.PlaneGeometry(tamanho, tamanho, segmentos, segmentos);
+                geometriaTerreno.rotateX(-Math.PI / 2);
+
+                const posicoes = geometriaTerreno.attributes.position;
+                const cores = new Float32Array(posicoes.count * 3);
+                const corClara = new THREE.Color(0xe8c789);
+                const corEscura = new THREE.Color(0xc9a35f);
+                for (let i = 0; i < posicoes.count; i++) {
+                    const x = posicoes.getX(i);
+                    const z = posicoes.getZ(i);
+                    const h = alturaTerreno(x, z);
+                    posicoes.setY(i, h);
+
+                    const t = THREE.MathUtils.clamp((h + 2) / 6, 0, 1);
+                    const cor = corEscura.clone().lerp(corClara, t);
+                    cores[i * 3] = cor.r;
+                    cores[i * 3 + 1] = cor.g;
+                    cores[i * 3 + 2] = cor.b;
+                }
+                geometriaTerreno.setAttribute('color', new THREE.BufferAttribute(cores, 3));
+                geometriaTerreno.computeVertexNormals();
+
+                const materialTerreno = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+                const terreno = new THREE.Mesh(geometriaTerreno, materialTerreno);
+                terreno.receiveShadow = true;
+                scene.add(terreno);
+
+                // --- Carrinho (buggy simples feito de primitivas) ---
+                const carro = new THREE.Group();
+
+                const corpo = new THREE.Mesh(
+                    new THREE.BoxGeometry(1.8, 0.6, 3.2),
+                    new THREE.MeshStandardMaterial({ color: 0xdc4a2f, roughness: 0.5, metalness: 0.2 })
+                );
+                corpo.position.y = 0.55;
+                corpo.castShadow = true;
+                carro.add(corpo);
+
+                const cabine = new THREE.Mesh(
+                    new THREE.BoxGeometry(1.3, 0.5, 1.4),
+                    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3 })
+                );
+                cabine.position.set(0, 1.05, -0.2);
+                cabine.castShadow = true;
+                carro.add(cabine);
+
+                const gaiola = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.75, 0.06, 8, 16, Math.PI),
+                    new THREE.MeshStandardMaterial({ color: 0x111827 })
+                );
+                gaiola.position.set(0, 1.3, -0.9);
+                gaiola.rotation.y = Math.PI / 2;
+                carro.add(gaiola);
+
+                const materialRoda = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
+                const raioRoda = 0.42;
+                const rodas = [];
+                [[-0.95, -1.0], [0.95, -1.0], [-0.95, 1.05], [0.95, 1.05]].forEach(([x, z]) => {
+                    const roda = new THREE.Mesh(new THREE.CylinderGeometry(raioRoda, raioRoda, 0.35, 16), materialRoda);
+                    roda.rotation.z = Math.PI / 2;
+                    roda.position.set(x, 0.42, z);
+                    roda.castShadow = true;
+                    carro.add(roda);
+                    rodas.push(roda);
+                });
+
+                scene.add(carro);
+
+                // --- Estado físico simplificado ---
+                const estado = { x: 0, z: 0, heading: 0, velocidade: 0 };
+                const teclas = {};
+                window.addEventListener('keydown', (e) => { teclas[e.key.toLowerCase()] = true; });
+                window.addEventListener('keyup', (e) => { teclas[e.key.toLowerCase()] = false; });
+
+                const ACELERACAO = 9;
+                const FREIO = 14;
+                const ATRITO = 4;
+                const VEL_MAX = 16;
+                const VEL_MAX_RE = -6;
+                const TAXA_GIRO = 2.0;
+
+                const camPosAtual = new THREE.Vector3(0, 6, 12);
+                const camAlvoAtual = new THREE.Vector3();
+
+                let ultimoTempo = performance.now();
+
+                const atualizarFisica = (dt) => {
+                    const acelerar = teclas['w'] || teclas['arrowup'];
+                    const frear = teclas['s'] || teclas['arrowdown'];
+                    const esquerda = teclas['a'] || teclas['arrowleft'];
+                    const direita = teclas['d'] || teclas['arrowright'];
+
+                    if (acelerar) {
+                        estado.velocidade += ACELERACAO * dt;
+                    } else if (frear) {
+                        estado.velocidade -= FREIO * dt;
+                    } else {
+                        estado.velocidade -= Math.sign(estado.velocidade) * Math.min(Math.abs(estado.velocidade), ATRITO * dt);
+                    }
+                    estado.velocidade = THREE.MathUtils.clamp(estado.velocidade, VEL_MAX_RE, VEL_MAX);
+
+                    const fatorGiro = THREE.MathUtils.clamp(Math.abs(estado.velocidade) / 4, 0, 1);
+                    const sentido = estado.velocidade >= 0 ? 1 : -1;
+                    if (esquerda) estado.heading += TAXA_GIRO * dt * fatorGiro * sentido;
+                    if (direita) estado.heading -= TAXA_GIRO * dt * fatorGiro * sentido;
+
+                    estado.x += Math.sin(estado.heading) * estado.velocidade * dt;
+                    estado.z += Math.cos(estado.heading) * estado.velocidade * dt;
+
+                    const limite = tamanho / 2 - 5;
+                    estado.x = THREE.MathUtils.clamp(estado.x, -limite, limite);
+                    estado.z = THREE.MathUtils.clamp(estado.z, -limite, limite);
+
+                    const h = alturaTerreno(estado.x, estado.z);
+
+                    const d = 1.4;
+                    const hFrente = alturaTerreno(estado.x + Math.sin(estado.heading) * d, estado.z + Math.cos(estado.heading) * d);
+                    const hTras = alturaTerreno(estado.x - Math.sin(estado.heading) * d, estado.z - Math.cos(estado.heading) * d);
+                    const pitch = Math.atan2(hFrente - hTras, 2 * d);
+
+                    const hDir = alturaTerreno(estado.x + Math.cos(estado.heading) * d, estado.z - Math.sin(estado.heading) * d);
+                    const hEsq = alturaTerreno(estado.x - Math.cos(estado.heading) * d, estado.z + Math.sin(estado.heading) * d);
+                    const roll = Math.atan2(hEsq - hDir, 2 * d);
+
+                    carro.position.set(estado.x, h + 0.05, estado.z);
+                    carro.rotation.order = 'YXZ';
+                    carro.rotation.y = estado.heading;
+                    carro.rotation.x = -pitch;
+                    carro.rotation.z = roll;
+
+                    rodas.forEach((roda) => { roda.rotation.x -= estado.velocidade * dt * 2; });
+
+                    const distanciaCam = 8.5;
+                    const alturaCam = 4;
+                    camAlvoAtual.set(
+                        estado.x - Math.sin(estado.heading) * distanciaCam,
+                        h + alturaCam,
+                        estado.z - Math.cos(estado.heading) * distanciaCam
+                    );
+                    camPosAtual.lerp(camAlvoAtual, 1 - Math.pow(0.001, dt));
+                    camera.position.copy(camPosAtual);
+                    camera.lookAt(estado.x, h + 1.2, estado.z);
+
+                    this.velocidadeExibida = Math.round(Math.abs(estado.velocidade) * 9);
+                };
+
+                const onResize = () => {
+                    largura = container.clientWidth;
+                    altura = container.clientHeight;
+                    camera.aspect = largura / altura;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(largura, altura);
+                };
+                window.addEventListener('resize', onResize);
+
+                const animar = () => {
+                    requestAnimationFrame(animar);
+                    const agora = performance.now();
+                    const dt = Math.min(0.05, (agora - ultimoTempo) / 1000);
+                    ultimoTempo = agora;
+
+                    atualizarFisica(dt);
+                    renderer.render(scene, camera);
+                };
+                animar();
+            },
+        },
+    }).mount('#deserto-app');
+</script>
+{% endblock %}

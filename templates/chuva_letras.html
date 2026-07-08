@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Chuva de Letras{% endblock %}
+
+{% block extra_head %}
+<style>
+    html, body { margin: 0; overflow: hidden; }
+    /* <canvas> é um elemento substituído: position:absolute + inset:0 sozinho não o
+       estica (diferente de uma <div>) — precisa de width/height explícitos. */
+    #chuva-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="chuva-app" class="relative w-full h-screen bg-black overflow-hidden">
+    <canvas id="chuva-canvas" class="absolute inset-0"></canvas>
+
+    <div class="absolute top-6 left-6 pointer-events-none">
+        <h1 class="text-lg font-bold text-white drop-shadow">🌧️ Chuva de Letras</h1>
+        <p class="text-slate-300 text-xs drop-shadow max-w-xs">
+            Digite no teclado — cada tecla vira uma letra caindo. Desenhe com o mouse (clique e arraste) pra
+            criar barreiras onde as letras se acumulam.
+        </p>
+    </div>
+
+    <div class="absolute top-6 right-6 flex gap-2">
+        <button @click="limparBarreiras"
+                class="px-3 py-1.5 bg-black/50 hover:bg-black/70 text-slate-300 text-xs rounded-lg backdrop-blur">
+            Limpar barreiras
+        </button>
+        <button @click="limparTudo"
+                class="px-3 py-1.5 bg-black/50 hover:bg-black/70 text-slate-300 text-xs rounded-lg backdrop-blur">
+            Limpar tudo
+        </button>
+    </div>
+
+    <div class="absolute bottom-6 left-6 pointer-events-none bg-black/40 backdrop-blur rounded-lg px-3 py-1.5">
+        <span class="font-mono text-xs text-slate-300">[[ totalLetras ]] letras · [[ totalBarreiras ]] segmentos de barreira</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const { createApp } = Vue;
+    createApp({
+        compilerOptions: { delimiters: ['[[', ']]'] },
+        data() {
+            return { totalLetras: 0, totalBarreiras: 0 };
+        },
+        mounted() {
+            this.iniciar();
+        },
+        methods: {
+            limparBarreiras() {
+                if (this._limparBarreirasImpl) this._limparBarreirasImpl();
+            },
+            limparTudo() {
+                if (this._limparTudoImpl) this._limparTudoImpl();
+            },
+            iniciar() {
+                const canvas = document.getElementById('chuva-canvas');
+                const ctx = canvas.getContext('2d');
+                let largura, altura;
+
+                const onResize = () => {
+                    largura = canvas.width = canvas.clientWidth;
+                    altura = canvas.height = canvas.clientHeight;
+                };
+                window.addEventListener('resize', onResize);
+                onResize();
+
+                const GRAVIDADE = 0.35;
+                const RAIO_LETRA = 11;
+                const RESTITUICAO = 0.35;
+                const ATRITO_TANGENCIAL = 0.85;
+
+                let letras = [];
+                let barreiras = []; // { x1, y1, x2, y2 }
+
+                const CORES = ['#4ade80', '#7CFCA0', '#a3e635', '#e2e8f0'];
+
+                // --- Chuva por teclado ---
+                window.addEventListener('keydown', (e) => {
+                    if (e.key.length !== 1 || e.key === ' ') return;
+                    letras.push({
+                        char: e.key,
+                        x: 20 + Math.random() * (largura - 40),
+                        y: -20,
+                        vx: (Math.random() - 0.5) * 1.5,
+                        vy: 0,
+                        angulo: 0,
+                        velAngular: (Math.random() - 0.5) * 0.1,
+                        cor: CORES[Math.floor(Math.random() * CORES.length)],
+                    });
+                    if (letras.length > 400) letras.shift();
+                });
+
+                // --- Desenho de barreiras com o mouse/touch ---
+                let desenhando = false;
+                let ultimoPonto = null;
+                const distanciaMinima = 4;
+
+                const posRelativa = (clientX, clientY) => {
+                    const rect = canvas.getBoundingClientRect();
+                    return { x: clientX - rect.left, y: clientY - rect.top };
+                };
+
+                const iniciarTraco = (x, y) => {
+                    desenhando = true;
+                    ultimoPonto = { x, y };
+                };
+                const continuarTraco = (x, y) => {
+                    if (!desenhando || !ultimoPonto) return;
+                    const dx = x - ultimoPonto.x, dy = y - ultimoPonto.y;
+                    if (Math.hypot(dx, dy) < distanciaMinima) return;
+                    barreiras.push({ x1: ultimoPonto.x, y1: ultimoPonto.y, x2: x, y2: y });
+                    ultimoPonto = { x, y };
+                    if (barreiras.length > 2000) barreiras.shift();
+                };
+                const finalizarTraco = () => {
+                    desenhando = false;
+                    ultimoPonto = null;
+                };
+
+                canvas.addEventListener('mousedown', (e) => {
+                    const p = posRelativa(e.clientX, e.clientY);
+                    iniciarTraco(p.x, p.y);
+                });
+                canvas.addEventListener('mousemove', (e) => {
+                    const p = posRelativa(e.clientX, e.clientY);
+                    continuarTraco(p.x, p.y);
+                });
+                window.addEventListener('mouseup', finalizarTraco);
+
+                canvas.addEventListener('touchstart', (e) => {
+                    const t = e.touches[0];
+                    const p = posRelativa(t.clientX, t.clientY);
+                    iniciarTraco(p.x, p.y);
+                    e.preventDefault();
+                }, { passive: false });
+                canvas.addEventListener('touchmove', (e) => {
+                    const t = e.touches[0];
+                    const p = posRelativa(t.clientX, t.clientY);
+                    continuarTraco(p.x, p.y);
+                    e.preventDefault();
+                }, { passive: false });
+                window.addEventListener('touchend', finalizarTraco);
+
+                this._limparBarreirasImpl = () => { barreiras = []; };
+                this._limparTudoImpl = () => { barreiras = []; letras = []; };
+
+                // --- Colisão: ponto (círculo) vs segmento de reta ---
+                const colidirComSegmento = (letra, seg) => {
+                    const { x1, y1, x2, y2 } = seg;
+                    const dx = x2 - x1, dy = y2 - y1;
+                    const compr2 = dx * dx + dy * dy;
+                    if (compr2 === 0) return null;
+
+                    let t = ((letra.x - x1) * dx + (letra.y - y1) * dy) / compr2;
+                    t = Math.max(0, Math.min(1, t));
+                    const px = x1 + t * dx;
+                    const py = y1 + t * dy;
+                    const distX = letra.x - px, distY = letra.y - py;
+                    const dist = Math.hypot(distX, distY);
+
+                    if (dist < RAIO_LETRA) {
+                        const nx = distX / (dist || 1);
+                        const ny = distY / (dist || 1);
+                        return { nx, ny, penetracao: RAIO_LETRA - dist };
+                    }
+                    return null;
+                };
+
+                const atualizar = () => {
+                    for (const letra of letras) {
+                        letra.vy += GRAVIDADE;
+                        letra.x += letra.vx;
+                        letra.y += letra.vy;
+                        letra.angulo += letra.velAngular;
+
+                        for (const seg of barreiras) {
+                            const colisao = colidirComSegmento(letra, seg);
+                            if (colisao) {
+                                letra.x += colisao.nx * colisao.penetracao;
+                                letra.y += colisao.ny * colisao.penetracao;
+
+                                const velNormal = letra.vx * colisao.nx + letra.vy * colisao.ny;
+                                if (velNormal < 0) {
+                                    letra.vx -= (1 + RESTITUICAO) * velNormal * colisao.nx;
+                                    letra.vy -= (1 + RESTITUICAO) * velNormal * colisao.ny;
+                                }
+                                letra.vx *= ATRITO_TANGENCIAL;
+                                letra.vy *= ATRITO_TANGENCIAL;
+                                letra.velAngular *= 0.8;
+                            }
+                        }
+
+                        if (letra.x < RAIO_LETRA) { letra.x = RAIO_LETRA; letra.vx *= -RESTITUICAO; }
+                        if (letra.x > largura - RAIO_LETRA) { letra.x = largura - RAIO_LETRA; letra.vx *= -RESTITUICAO; }
+                        if (letra.y > altura - RAIO_LETRA) {
+                            letra.y = altura - RAIO_LETRA;
+                            letra.vy *= -RESTITUICAO;
+                            letra.vx *= ATRITO_TANGENCIAL;
+                        }
+                    }
+                };
+
+                const desenhar = () => {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+                    ctx.fillRect(0, 0, largura, altura);
+
+                    ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+                    ctx.lineWidth = 4;
+                    ctx.lineCap = 'round';
+                    barreiras.forEach((seg) => {
+                        ctx.beginPath();
+                        ctx.moveTo(seg.x1, seg.y1);
+                        ctx.lineTo(seg.x2, seg.y2);
+                        ctx.stroke();
+                    });
+
+                    ctx.font = 'bold 20px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    letras.forEach((l) => {
+                        ctx.save();
+                        ctx.translate(l.x, l.y);
+                        ctx.rotate(l.angulo);
+                        ctx.fillStyle = l.cor;
+                        ctx.fillText(l.char, 0, 0);
+                        ctx.restore();
+                    });
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'alphabetic';
+                };
+
+                let contadorUi = 0;
+                const loop = () => {
+                    requestAnimationFrame(loop);
+                    atualizar();
+                    desenhar();
+                    if (++contadorUi % 15 === 0) {
+                        this.totalLetras = letras.length;
+                        this.totalBarreiras = barreiras.length;
+                    }
+                };
+                loop();
+            },
+        },
+    }).mount('#chuva-app');
+</script>
+{% endblock %}
