@@ -4,6 +4,12 @@ Este documento serve como especificação técnica e guia de desenvolvimento par
 
 ---
 
+## General Approach
+
+Prefer the simplest working approach and confirm scope before scaffolding large amounts of code.
+
+---
+
 ## 1. Princípios Arquiteturais
 
 * **Roteamento:** O controle de rotas de páginas e arquivos físicos HTML é de responsabilidade exclusiva do **Flask** (Multi-Page Application - MPA). Não utilizar `vue-router`.
@@ -96,3 +102,15 @@ Ao codificar o backend (`app.py`), certifique-se de configurar as variáveis de 
 ### Dica de ouro: Tonalidade do Spotify
 
 Como o Spotify trabalha com IDs matemáticos para a tonalidade (ex: `0 = C`, `1 = C♯/D♭`, `2 = D`), vale a pena deixar um dicionário/mapa no código para traduzir o número da API para texto legível antes de mandar o JSON para o Vue.
+
+---
+
+## Development & Testing
+
+This project uses Docker for running and testing. Always verify changes by running services via `docker compose up` rather than running Flask/Vue directly on the host.
+
+---
+
+## Debugging
+
+Before diagnosing container or build issues, first read the README and check the current Docker state (`docker ps`, `docker compose config`).
